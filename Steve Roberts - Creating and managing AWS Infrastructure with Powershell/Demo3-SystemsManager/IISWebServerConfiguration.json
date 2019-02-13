@@ -1,0 +1,84 @@
+{
+    "schemaVersion": "2.2",
+    "description": "Configures IIS Web Server, to compare with demo 1 which used userdata scripts, and adds the CloudWatch agent.",
+    "parameters": {},
+    "mainSteps":
+    [
+        {
+            "action": "aws:runPowerShellScript",
+            "name": "installIIS",
+            "precondition":
+            {
+                "StringEquals":
+                [
+                    "platformType", "Windows"
+                ]
+            },
+            "inputs":
+            {
+                "runCommand":
+                [
+                    "Install-WindowsFeature -Name Web-Server,NET-Framework-45-ASPNET,NET-Framework-45-Core,NET-Framework-45-Features,NET-Framework-Core -IncludeManagementTools",
+                    "Start-IISSite 'Default Web Site'"
+                ]
+            }
+        },
+        {
+            "action": "aws:runPowerShellScript",
+            "name": "installWebDeployViaChocolately",
+            "precondition":
+            {
+                "StringEquals":
+                [
+                    "platformType", "Windows"
+                ]
+            },
+            "inputs":
+            {
+                "runCommand":
+                [
+                    "Set-ExecutionPolicy Bypass -Scope Process -Force; iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))",
+                    "choco install webdeploy -y"
+                ]
+            }
+        },
+        {
+            "action": "aws:runPowerShellScript",
+            "name": "installCodeDeployAgent",
+            "precondition":
+            {
+                "StringEquals":
+                [
+                    "platformType", "Windows"
+                ]
+            },
+            "inputs":
+            {
+                "runCommand":
+                [
+                    "$thisRegion = (Get-EC2InstanceMetadata -Category Region).SystemName",
+                    "Read-S3Object -BucketName aws-codedeploy-$thisRegion -Key latest/codedeploy-agent.msi -File c:\\temp\\codedeploy-agent.msi",
+                    "c:\\temp\\codedeploy-agent.msi /quiet /l c:\\temp\\host-agent-install-log.txt"
+                ]
+            }
+        },
+        {
+            "action": "aws:runDocument",
+            "name": "installCloudWatchAgent",
+            "inputs": {
+                "documentType": "SSMDocument",
+                "documentPath": "AWS-ConfigureAWSPackage",
+                "documentParameters": "{\"action\":\"Install\", \"name\":\"AmazonCloudWatchAgent\" }"
+            }
+        },
+        {
+            "action": "aws:runDocument",
+            "name": "startCloudWatchAgent",
+            "inputs": {
+                "documentType": "SSMDocument",
+                "documentPath": "AmazonCloudWatch-ManageAgent",
+                "documentParameters": "{\"action\":\"configure\", \"mode\":\"ec2\", \"optionalConfigurationSource\":\"ssm\", \"optionalConfigurationLocation\":\"/nic2019/CloudWatchConfiguration.AppAndIISLogs.json\", \"optionalRestart\":\"yes\"}"
+            }
+        }
+    ]
+}
